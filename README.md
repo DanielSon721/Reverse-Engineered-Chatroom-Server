@@ -95,7 +95,7 @@ docker run --rm -it --platform=linux/amd64 --network host -v "$(pwd)":/a3 ubuntu
 
 \connect \<server-ip\>:41700
 
-Acknowledgements
+## Acknowledgements
 
 This project was developed by reverse-engineering the binary reference server:
 
@@ -108,7 +108,3 @@ Binary diffing
 Experimentation with malformed packets
 
 Careful comparison to the reference client’s printed output
-
-If you want a more polished version, a short resume-style version, or a Markdown-enhanced version with diagrams, just tell me.
-
-ChatGPT can make mistakes. Check important info.
