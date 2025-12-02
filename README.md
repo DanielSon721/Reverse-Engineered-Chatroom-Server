@@ -1,4 +1,4 @@
-## Reverse Engineered Chatroom Server
+# Reverse Engineered Chatroom Server
 
 This project is a fully compatible replacement chat server for the provided chatroom server executable.
 The reference implementation was provided only as a binary, so the server was created by reverse-engineering the network protocol through packet inspection, Wireshark traces, and behavioral matching.
@@ -30,7 +30,7 @@ This server implements every packet type used by the official client:
 
 All responses use the exact payload structure expected by the client, including special formatting rules, length bytes, and ordering.
 
-### Reverse Engineering Tasks Completed
+## Reverse Engineering Tasks Completed
 1. Decoded the binary packet formats
 
 Using tcpdump + Wireshark, the following protocol fields were reverse-engineered:
