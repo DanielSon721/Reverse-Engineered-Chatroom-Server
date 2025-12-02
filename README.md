@@ -62,26 +62,33 @@ Protocol-accurate serialization/deserialization
 
 The server was made to perfectly match:
 
-Output ordering
+* Output ordering
 
-Packet sequencing
+* Packet sequencing
 
-Opcode usage
+* Opcode usage
 
-Room/user listing formatting
+* Room/user listing formatting
 
-All accepted and rejected client commands
+* All accepted and rejected client commands
 
 This ensures the client prints identical text when connected to this server or the reference, which is the requirement for full credit.
 
-How to Build
+## To run reference server:
+
+./rserver_ref_macos_arm64 -p 41700
+
+## How to Build
+
 make clean
 make
 
-How to Run
+## How to run my implementation:
 ./rserver -p 41700
 
-Then in the provided client:
+## How to run provided client:
+
+docker run --rm -it --platform=linux/amd64 --network host -v "$(pwd)":/a3 ubuntu:24.04 bash
 
 \connect <server-ip>:41700
 
