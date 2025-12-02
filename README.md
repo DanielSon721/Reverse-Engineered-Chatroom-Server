@@ -74,20 +74,22 @@ The server was made to perfectly match:
 
 This ensures the client prints identical text when connected to this server or the reference.
 
-## To run reference server:
+## How to run everything
+
+### To run reference server:
 
 ./rserver_ref_macos_arm64 -p 41700
 
-## How to Build
+### To build my implementation
 
 make clean
 
 make
 
-## How to run my implementation:
+### To run my implementation:
 ./rserver -p 41700
 
-## How to run provided client:
+### To run provided client:
 
 docker run --rm -it --platform=linux/amd64 --network host -v "$(pwd)":/a3 ubuntu:24.04 bash
 
