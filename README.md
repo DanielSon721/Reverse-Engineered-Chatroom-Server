@@ -31,7 +31,7 @@ This server implements every packet type used by the official client:
 All responses use the exact payload structure expected by the client, including special formatting rules, length bytes, and ordering.
 
 ## Reverse Engineering Tasks Completed
-1. Decoded the binary packet formats
+### 1. Decoded the binary packet formats
 
 Using tcpdump + Wireshark, the following protocol fields were reverse-engineered:
 
@@ -46,7 +46,7 @@ Using tcpdump + Wireshark, the following protocol fields were reverse-engineered
 
 * Status and error packet formats
 
-2. Implemented the server from scratch
+### 2. Implemented the server from scratch
 
 All networking logic is built using:
 
@@ -58,7 +58,7 @@ All networking logic is built using:
 
 * Protocol-accurate serialization/deserialization
 
-3. Matched server behavior exactly
+### 3. Matched server behavior exactly
 
 The server was made to perfectly match:
 
