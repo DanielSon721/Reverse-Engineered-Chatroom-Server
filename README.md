@@ -72,7 +72,7 @@ The server was made to perfectly match:
 
 * All accepted and rejected client commands
 
-This ensures the client prints identical text when connected to this server or the reference, which is the requirement for full credit.
+This ensures the client prints identical text when connected to this server or the reference.
 
 ## To run reference server:
 
