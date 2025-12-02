@@ -35,28 +35,28 @@ All responses use the exact payload structure expected by the client, including 
 
 Using tcpdump + Wireshark, the following protocol fields were reverse-engineered:
 
-7-byte headers:
+* 7-byte headers:
 [len:4][0x04][0x17][opcode]
 
-Variable-length nickname/room/message fields
+* Variable-length nickname/room/message fields
 
-Room and user list encodings
+* Room and user list encodings
 
-DM encoding (server → client)
+* DM encoding (server → client)
 
-Status and error packet formats
+* Status and error packet formats
 
 2. Implemented the server from scratch
 
 All networking logic is built using:
 
-select() multiplexing
+* select() multiplexing
 
-Non-blocking I/O loops
+* Non-blocking I/O loops
 
-Dynamic client/room management
+* Dynamic client/room management
 
-Protocol-accurate serialization/deserialization
+* Protocol-accurate serialization/deserialization
 
 3. Matched server behavior exactly
 
