@@ -10,23 +10,23 @@ Features
 
 This server implements every packet type used by the official client:
 
-Handshake (0x9B → 0x9A)
+* Handshake (0x9B → 0x9A)
 
-Nick change (0x0F)
+* Nick change (0x0F)
 
-Join room (0x03)
+* Join room (0x03)
 
-Leave room (0x06)
+* Leave room (0x06)
 
-List rooms (0x09)
+* List rooms (0x09)
 
-List users (0x0C)
+* List users (0x0C)
 
-Room messages (0x15)
+* Room messages (0x15)
 
-Private messages (DM) (0x12)
+* Private messages (DM) (0x12)
 
-Status / OK / Error packets (0x9A, 0x9C)
+* Status / OK / Error packets (0x9A, 0x9C)
 
 All responses use the exact payload structure expected by the client, including special formatting rules, length bytes, and ordering.
 
