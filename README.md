@@ -91,6 +91,8 @@ make
 
 docker run --rm -it --platform=linux/amd64 --network host -v "$(pwd)":/a3 ubuntu:24.04 bash
 
+./client-executable
+
 \connect <server-ip>:41700
 
 Acknowledgements
