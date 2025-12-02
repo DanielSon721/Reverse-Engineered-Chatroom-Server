@@ -1,12 +1,12 @@
 # Reverse Engineered Chatroom Server
 
-This project is a fully compatible replacement chat server for the provided chatroom server executable.
+This project is a fully compatible replacement chatroom server for a provided chatroom server executable.
 The reference implementation was provided only as a binary, so the server was created by reverse-engineering the network protocol through packet inspection, Wireshark traces, and behavioral matching.
 
 This server is designed to match the reference server byte-for-byte, ensuring that the official client produces identical output when connected.
 
-Features
-✅ Full Protocol Compatibility
+## Features
+Full Protocol Compatibility
 
 This server implements every packet type used by the official client:
 
