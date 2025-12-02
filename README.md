@@ -101,12 +101,12 @@ docker run --rm -it --platform=linux/amd64 --network host -v "$(pwd)":/a3 ubuntu
 
 This project was developed by reverse-engineering the binary reference server:
 
-tcpdump
+* tcpdump
 
-Wireshark
+* Wireshark
 
-Binary diffing
+* Binary diffing
 
-Experimentation with malformed packets
+* Experimentation with malformed packets
 
-Careful comparison to the reference client’s printed output
+* Careful comparison to the reference server’s printed output
