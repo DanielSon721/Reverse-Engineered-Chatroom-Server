@@ -16,6 +16,25 @@
 #define MAX_ROOM 255
 #define MAX_MSG  65535
 
+/* VERSION BYTES */
+#define PROTO_VER_MAJOR   0x04
+#define PROTO_VER_MINOR   0x17
+
+/* OPCODES */
+#define OPCODE_STATUS     0x9A
+#define OPCODE_HANDSHAKE  0x9B
+#define OPCODE_NICK       0x0F
+#define OPCODE_JOIN       0x03
+#define OPCODE_LEAVE      0x06
+#define OPCODE_LIST_ROOMS 0x09
+#define OPCODE_LIST_USERS 0x0C
+#define OPCODE_ROOM_CHAT  0x15
+#define OPCODE_DM         0x12
+
+/* STATUS TYPES */
+#define STATUS_OK         0x00
+#define STATUS_ERROR      0x01
+
 struct Room;
 struct Client;
 
@@ -41,9 +60,7 @@ static Room   *rooms_tail   = NULL;
 
 static int next_rand_id = 0;
 
-/* ============================================================
- * Utility
- * ============================================================ */
+/* UTILITY */
 static void die(const char *msg) {
     perror(msg);
     exit(1);
@@ -61,9 +78,9 @@ static ssize_t read_exact(int fd, void *buf, size_t n) {
         ssize_t r = recv(fd, (uint8_t*)buf + off, n - off, 0);
         if (r < 0) {
             if (errno == EINTR) continue;
-            return -1;         // real error
+            return -1;
         }
-        if (r == 0) return -1; // client closed connection
+        if (r == 0) return -1;
         off += r;
     }
     return off;
@@ -85,9 +102,8 @@ static ssize_t writen(int fd, const void *buf, size_t n) {
     return n;
 }
 
-/* ============================================================
- * Client / Room management
- * ============================================================ */
+/* CLIENT / ROOM MANAGEMENT */
+
 static void remove_client(Client *c);
 
 static void add_client(Client *c) {
@@ -130,7 +146,7 @@ static void add_room(Room *r) {
 static Room *get_or_create_room(const char *name, const char *pass) {
     Room *r = find_room_by_name(name);
     if (r) {
-        fprintf(stderr, "[DEBUG] get_or_create_room: found existing room '%s'\n", name);
+        fprintf(stderr, "[DEBUG] get_or_create_room: found '%s'\n", name);
         return r;
     }
 
@@ -149,7 +165,6 @@ static Room *get_or_create_room(const char *name, const char *pass) {
     return r;
 }
 
-/* Delete an empty room from the global room list */
 static void delete_room(Room *r) {
     fprintf(stderr, "[DEBUG] delete_room: '%s'\n", r->name);
 
@@ -162,7 +177,6 @@ static void delete_room(Room *r) {
         pp = &(*pp)->next;
     }
 
-    /* Rebuild rooms_tail */
     rooms_tail = NULL;
     for (Room *cur = rooms_head; cur; cur = cur->next) {
         if (!cur->next) rooms_tail = cur;
@@ -172,9 +186,9 @@ static void delete_room(Room *r) {
 }
 
 static void room_add_client(Room *r, Client *c) {
-    fprintf(stderr, "[DEBUG] room_add_client: nick='%s' → room='%s'\n",
-            c->nick, r->name);
+    fprintf(stderr, "[DEBUG] room_add_client: '%s' → '%s'\n", c->nick, r->name);
     c->next_in_room = NULL;
+
     if (!r->members) {
         r->members = c;
     } else {
@@ -182,6 +196,7 @@ static void room_add_client(Room *r, Client *c) {
         while (cur->next_in_room) cur = cur->next_in_room;
         cur->next_in_room = c;
     }
+
     c->room = r;
 }
 
@@ -189,7 +204,7 @@ static void room_remove_client(Client *c) {
     if (!c->room) return;
 
     Room *r = c->room;
-    fprintf(stderr, "[DEBUG] room_remove_client: nick='%s' from room='%s'\n",
+    fprintf(stderr, "[DEBUG] room_remove_client: '%s' from '%s'\n",
             c->nick, r->name);
 
     Client **pp = &r->members;
@@ -204,7 +219,6 @@ static void room_remove_client(Client *c) {
     c->room = NULL;
     c->next_in_room = NULL;
 
-    /* Delete room if empty */
     if (r->members == NULL) {
         delete_room(r);
     }
@@ -212,6 +226,7 @@ static void room_remove_client(Client *c) {
 
 static void remove_client(Client *c) {
     fprintf(stderr, "[DEBUG] remove_client: fd=%d nick='%s'\n", c->fd, c->nick);
+
     room_remove_client(c);
 
     Client **pp = &clients_head;
@@ -224,19 +239,15 @@ static void remove_client(Client *c) {
     }
 
     clients_tail = NULL;
-    Client *t = clients_head;
-    while (t) {
+    for (Client *t = clients_head; t; t = t->next_global) {
         if (!t->next_global) clients_tail = t;
-        t = t->next_global;
     }
 
     close(c->fd);
     free(c);
 }
 
-/* ============================================================
- * BINARY PROTOCOL
- * ============================================================ */
+/* BINARY PROTOCOL */
 
 static bool send_packet_raw(Client *c, uint8_t opcode,
                             const uint8_t *payload, uint32_t len)
@@ -245,8 +256,8 @@ static bool send_packet_raw(Client *c, uint8_t opcode,
 
     uint8_t header[7];
     memcpy(header, &be_len, 4);
-    header[4] = 0x04;
-    header[5] = 0x17;
+    header[4] = PROTO_VER_MAJOR;
+    header[5] = PROTO_VER_MINOR;
     header[6] = opcode;
 
     fprintf(stderr,
@@ -264,52 +275,44 @@ static bool send_packet_raw(Client *c, uint8_t opcode,
     return true;
 }
 
-/* Status (0x9A): [type:1][optional text or encoded list...] */
 static bool send_status(Client *c, uint8_t type, const char *text) {
     size_t tlen = text ? strlen(text) : 0;
     uint32_t len = 1 + (uint32_t)tlen;
 
     uint8_t *payload = xcalloc(len, 1);
     payload[0] = type;
-    if (tlen > 0)
-        memcpy(payload + 1, text, tlen);
+    if (tlen > 0) memcpy(payload + 1, text, tlen);
 
     fprintf(stderr,
             "[DEBUG] send_status: fd=%d type=0x%02X text='%s'\n",
             c->fd, type, text ? text : "");
 
-    bool ok = send_packet_raw(c, 0x9A, payload, len);
+    bool ok = send_packet_raw(c, OPCODE_STATUS, payload, len);
     free(payload);
     return ok;
 }
 
 static bool send_ok(Client *c) {
-    return send_status(c, 0x00, NULL);
+    return send_status(c, STATUS_OK, NULL);
 }
 
 static bool send_error(Client *c, const char *msg) {
-    return send_status(c, 0x01, msg);
+    return send_status(c, STATUS_ERROR, msg);
 }
 
-/* Handshake response is just an OK-status with nickname text */
 static bool send_handshake(Client *c) {
     fprintf(stderr, "[DEBUG] send_handshake: fd=%d nick='%s'\n", c->fd, c->nick);
-    return send_status(c, 0x00, c->nick);
+    return send_status(c, STATUS_OK, c->nick);
 }
 
-/* ============================================================
- * Room Broadcast
- * ============================================================ */
+/* ROOM BROADCAST */
 
-/* Room message (0x15):
- * [room_len:1][room][nick_len:1][nick][msg_len:2][msg]
- */
 static bool send_room_message(Client *to, const char *room,
                               const char *nick, const char *msg)
 {
-    uint8_t roomlen = (uint8_t)strlen(room);
-    uint8_t nicklen = (uint8_t)strlen(nick);
-    uint16_t msglen = (uint16_t)strlen(msg);
+    uint8_t roomlen = strlen(room);
+    uint8_t nicklen = strlen(nick);
+    uint16_t msglen = strlen(msg);
 
     uint32_t payload_len = 1 + roomlen + 1 + nicklen + 2 + msglen;
     uint8_t *payload = xcalloc(payload_len, 1);
@@ -333,22 +336,18 @@ static bool send_room_message(Client *to, const char *room,
             "[DEBUG] send_room_message: to_fd=%d room='%s' from='%s' msg='%s'\n",
             to->fd, room, nick, msg);
 
-    bool ok = send_packet_raw(to, 0x15, payload, payload_len);
+    bool ok = send_packet_raw(to, OPCODE_ROOM_CHAT, payload, payload_len);
     free(payload);
     return ok;
 }
 
-/* ============================================================
- * Direct Message (DM) to client (opcode 0x12)
- * ============================================================ */
-/* DM packet format (0x12), server->client:
- * [sender_len:1][sender][msg_len:2][msg]
- */
+/* DIRECT MESSAGE */
+
 static bool send_dm_packet(Client *to, const char *from_nick,
                            const char *msg)
 {
-    uint8_t nlen = (uint8_t)strlen(from_nick);
-    uint16_t mlen = (uint16_t)strlen(msg);
+    uint8_t nlen = strlen(from_nick);
+    uint16_t mlen = strlen(msg);
 
     uint32_t plen = 1 + nlen + 2 + mlen;
     uint8_t *buf = xcalloc(plen, 1);
@@ -367,14 +366,12 @@ static bool send_dm_packet(Client *to, const char *from_nick,
             "[DEBUG] send_dm_packet: to_fd=%d from='%s' msg='%s'\n",
             to->fd, from_nick, msg);
 
-    bool ok = send_packet_raw(to, 0x12, buf, plen);
+    bool ok = send_packet_raw(to, OPCODE_DM, buf, plen);
     free(buf);
     return ok;
 }
 
-/* ============================================================
- * Receive
- * ============================================================ */
+/* RECEIVE */
 
 static bool recv_packet(Client *c, uint8_t *opcode,
                         uint8_t *payload, uint32_t *plen)
@@ -389,22 +386,20 @@ static bool recv_packet(Client *c, uint8_t *opcode,
                    (hdr[3]);
 
     fprintf(stderr,
-            "[DEBUG] recv_packet: fd=%d raw_header len=%u ver=0x%02X 0x%02X opcode=0x%02X\n",
+            "[DEBUG] recv_packet: fd=%d len=%u ver=0x%02X 0x%02X opcode=0x%02X\n",
             c->fd, len, hdr[4], hdr[5], hdr[6]);
 
-    if (hdr[4] != 0x04 || hdr[5] != 0x17) {
+    if (hdr[4] != PROTO_VER_MAJOR || hdr[5] != PROTO_VER_MINOR) {
         fprintf(stderr,
-                "[DEBUG] recv_packet: fd=%d bad version bytes (0x%02X,0x%02X)\n",
-                c->fd, hdr[4], hdr[5]);
+                "[DEBUG] recv_packet: bad version 0x%02X 0x%02X\n",
+                hdr[4], hdr[5]);
         return false;
     }
 
     *opcode = hdr[6];
 
     if (len > *plen) {
-        fprintf(stderr,
-                "[DEBUG] recv_packet: fd=%d payload too large len=%u max=%u\n",
-                c->fd, len, *plen);
+        fprintf(stderr, "[DEBUG] recv_packet: payload too large %u\n", len);
         return false;
     }
 
@@ -414,17 +409,10 @@ static bool recv_packet(Client *c, uint8_t *opcode,
     }
 
     *plen = len;
-
-    fprintf(stderr,
-            "[DEBUG] recv_packet: fd=%d opcode=0x%02X payload_len=%u\n",
-            c->fd, *opcode, *plen);
-
     return true;
 }
 
-/* ============================================================
- * Handlers
- * ============================================================ */
+/* HANDLERS */
 
 static void handle_nick(Client *c, const char *newnick) {
     fprintf(stderr,
@@ -435,9 +423,6 @@ static void handle_nick(Client *c, const char *newnick) {
 
     Client *existing = find_client_by_nick(newnick);
     if (existing && existing != c) {
-        fprintf(stderr,
-                "[DEBUG] handle_nick: nick '%s' already in use\n",
-                newnick);
         send_error(c, "That name's already on the Marauder's Map. Choose another.");
         return;
     }
@@ -450,49 +435,44 @@ static void handle_nick(Client *c, const char *newnick) {
 static void handle_join(Client *c, const char *room, const char *pass) {
     fprintf(stderr,
             "[DEBUG] handle_join: fd=%d nick='%s' room='%s' pass='%s'\n",
-            c->fd, c->nick, room ? room : "(null)", pass ? pass : "(null)");
+            c->fd, c->nick,
+            room ? room : "(null)",
+            pass ? pass : "(null)");
 
     if (!room || !*room) return;
 
     if (c->room && strcmp(c->room->name, room) == 0) {
-        fprintf(stderr,
-                "[DEBUG] handle_join: already in room '%s'\n", room);
         send_error(c, "You've already apparated into this room. No need for a Time-Turner.");
         return;
     }
 
     Room *r = find_room_by_name(room);
     if (!r) {
-        fprintf(stderr,
-                "[DEBUG] handle_join: room '%s' does not exist, creating\n",
-                room);
         r = get_or_create_room(room, pass);
     } else {
         const char *stored = r->password;
         const char *given  = pass ? pass : "";
-        if (stored[0] != '\0' || given[0] != '\0') {
-            if (strcmp(stored, given) != 0) {
-                fprintf(stderr,
-                        "[DEBUG] handle_join: bad password for room '%s'\n",
-                        room);
-                send_error(c, "Incorrect password. Maybe try 'Alohomora'?");
-                return;
-            }
+        if ((stored[0] != '\0' || given[0] != '\0') &&
+            strcmp(stored, given) != 0)
+        {
+            send_error(c, "Incorrect password. Maybe try 'Alohomora'?");
+            return;
         }
     }
 
     if (c->room) room_remove_client(c);
     room_add_client(r, c);
+
     send_ok(c);
 }
 
 static void handle_leave(Client *c) {
     fprintf(stderr,
             "[DEBUG] handle_leave: fd=%d nick='%s' room='%s'\n",
-            c->fd, c->nick, c->room ? c->room->name : "(none)");
+            c->fd, c->nick,
+            c->room ? c->room->name : "(none)");
 
     if (!c->room) {
-        /* Match reference behavior: leaving when not in a room = disconnect */
         send_ok(c);
         remove_client(c);
         return;
@@ -503,10 +483,7 @@ static void handle_leave(Client *c) {
 }
 
 static bool send_user_list(Client *c, Client **users, int count) {
-    /* Status payload format:
-     * [type:1=0x00][ repeated { nick_len:1, nick } ... ]
-     */
-    uint32_t total = 1; /* type byte */
+    uint32_t total = 1;
     for (int i = 0; i < count; i++) {
         size_t len = strlen(users[i]->nick);
         if (len > 255) len = 255;
@@ -516,7 +493,7 @@ static bool send_user_list(Client *c, Client **users, int count) {
     uint8_t *payload = xcalloc(total, 1);
     int pos = 0;
 
-    payload[pos++] = 0x00; /* OK */
+    payload[pos++] = STATUS_OK;
 
     for (int i = 0; i < count; i++) {
         size_t len = strlen(users[i]->nick);
@@ -526,64 +503,37 @@ static bool send_user_list(Client *c, Client **users, int count) {
         pos += (int)len;
     }
 
-    fprintf(stderr,
-            "[DEBUG] send_user_list: fd=%d count=%d total_bytes=%u\n",
-            c->fd, count, total);
-
-    bool ok = send_packet_raw(c, 0x9A, payload, total);
+    bool ok = send_packet_raw(c, OPCODE_STATUS, payload, total);
     free(payload);
     return ok;
 }
 
 static void handle_list_users(Client *c) {
-    Client *list[1024];
+    Client *arr[1024];
     int count = 0;
 
     if (c->room) {
         for (Client *m = c->room->members; m; m = m->next_in_room)
-            list[count++] = m;
-        fprintf(stderr,
-                "[DEBUG] handle_list_users: fd=%d in-room list, count=%d room='%s'\n",
-                c->fd, count, c->room->name);
+            arr[count++] = m;
     } else {
         for (Client *m = clients_head; m; m = m->next_global)
-            list[count++] = m;
-        fprintf(stderr,
-                "[DEBUG] handle_list_users: fd=%d global list, count=%d\n",
-                c->fd, count);
+            arr[count++] = m;
     }
 
-    send_user_list(c, list, count);
+    send_user_list(c, arr, count);
 }
 
-/*
- * Room list using the SAME status format as list-users:
- *
- * Status opcode 0x9A, payload:
- *   [type:1 = 0x00]
- *   then repeated:
- *      [room_len:1][room_name bytes]
- *
- * Example with one room "room":
- *   len = 6
- *   payload = 00 04 72 6f 6f 6d
- *
- * The client uses this to print:
- *   "List of rooms: room1 room2"
- */
 static void handle_list_rooms(Client *c) {
-    Room *rooms[1024];
+    Room *arr[1024];
     int count = 0;
 
     for (Room *r = rooms_head; r; r = r->next) {
-        if (count < 1024) {
-            rooms[count++] = r;
-        }
+        arr[count++] = r;
     }
 
-    uint32_t total = 1; /* type byte */
+    uint32_t total = 1;
     for (int i = 0; i < count; i++) {
-        size_t len = strlen(rooms[i]->name);
+        size_t len = strlen(arr[i]->name);
         if (len > 255) len = 255;
         total += 1 + (uint32_t)len;
     }
@@ -591,31 +541,20 @@ static void handle_list_rooms(Client *c) {
     uint8_t *payload = xcalloc(total, 1);
     int pos = 0;
 
-    payload[pos++] = 0x00; /* OK */
-
+    payload[pos++] = STATUS_OK;
     for (int i = 0; i < count; i++) {
-        size_t len = strlen(rooms[i]->name);
+        size_t len = strlen(arr[i]->name);
         if (len > 255) len = 255;
         payload[pos++] = (uint8_t)len;
-        memcpy(payload + pos, rooms[i]->name, len);
+        memcpy(payload + pos, arr[i]->name, len);
         pos += (int)len;
     }
 
-    fprintf(stderr,
-            "[DEBUG] handle_list_rooms: fd=%d count=%d total_bytes=%u\n",
-            c->fd, count, total);
-
-    /* Only a 0x9A status packet — no extra opcodes, so the client
-       will not see an "Unexpected message type". */
-    send_packet_raw(c, 0x9A, payload, total);
+    send_packet_raw(c, OPCODE_STATUS, payload, total);
     free(payload);
 }
 
 static void handle_room_chat(Client *c, const char *msg) {
-    fprintf(stderr,
-            "[DEBUG] handle_room_chat: fd=%d nick='%s' room='%s' msg='%s'\n",
-            c->fd, c->nick, c->room ? c->room->name : "(none)", msg);
-
     if (!c->room) {
         send_error(c, "You're talking to the walls. No one is here to listen.");
         return;
@@ -629,27 +568,9 @@ static void handle_room_chat(Client *c, const char *msg) {
     send_ok(c);
 }
 
-/* Direct message:
- * client -> server (opcode 0x12):
- *   [dest_len:1][dest][msg_len:2][msg]
- *
- * server behavior:
- *   - if dest not found: error to sender
- *   - if found:
- *       * send OK (status 0x9A type=0) to sender (no text)
- *       * send DM (opcode 0x12) to recipient:
- *           [sender_len:1][sender][msg_len:2][msg]
- */
 static void handle_msg(Client *c, const char *dest, const char *text) {
-    fprintf(stderr,
-            "[DEBUG] handle_msg: fd=%d from='%s' to='%s' msg='%s'\n",
-            c->fd, c->nick, dest ? dest : "(null)", text ? text : "(null)");
-
     Client *d = find_client_by_nick(dest);
     if (!d) {
-        fprintf(stderr,
-                "[DEBUG] handle_msg: dest nick '%s' not found\n",
-                dest);
         send_error(c, "That wizard isn't here. Maybe try the Room of Requirement?");
         return;
     }
@@ -658,167 +579,114 @@ static void handle_msg(Client *c, const char *dest, const char *text) {
     send_dm_packet(d, c->nick, text);
 }
 
-/* ============================================================
- * Dispatch
- * ============================================================ */
+/* DISPATCH */
 
-static void process_packet(Client *c, uint8_t opcode, uint8_t *p, uint32_t len) {
-    fprintf(stderr,
-            "[DEBUG] process_packet: fd=%d opcode=0x%02X len=%u\n",
-            c->fd, opcode, len);
-
+static void process_packet(Client *c, uint8_t opcode,
+                           uint8_t *p, uint32_t len)
+{
     switch (opcode) {
 
-    case 0x9B: /* handshake request */
+    case OPCODE_HANDSHAKE:
         send_handshake(c);
         break;
 
-    case 0x0F: { /* nick */
-        if (len < 1) {
-            fprintf(stderr, "[DEBUG] process_packet nick: len<1\n");
-            break;
-        }
+    case OPCODE_NICK: {
+        if (len < 1) break;
         uint8_t nlen = p[0];
-        if (1 + nlen > len) {
-            fprintf(stderr,
-                    "[DEBUG] process_packet nick: bad lengths nlen=%u len=%u\n",
-                    nlen, len);
-            break;
-        }
+        if (1 + nlen > len) break;
 
-        char nick[MAX_NICK + 1];
         if (nlen > MAX_NICK) nlen = MAX_NICK;
-        memcpy(nick, &p[1], nlen);
+        char nick[MAX_NICK+1];
+        memcpy(nick, p+1, nlen);
         nick[nlen] = '\0';
 
         handle_nick(c, nick);
         break;
     }
 
-    case 0x03: { /* join */
-        if (len < 1) {
-            fprintf(stderr, "[DEBUG] process_packet join: len<1\n");
-            break;
-        }
+    case OPCODE_JOIN: {
+        if (len < 1) break;
         uint8_t rlen = p[0];
-        if (1 + rlen + 1 > len) {
-            fprintf(stderr,
-                    "[DEBUG] process_packet join: bad room/pass lengths rlen=%u len=%u\n",
-                    rlen, len);
-            break;
-        }
+        if (1 + rlen + 1 > len) break;
 
-        uint8_t plen_off = 1 + rlen;
-        uint8_t plen = p[plen_off];
-        if (plen_off + 1 + plen > len) {
-            fprintf(stderr,
-                    "[DEBUG] process_packet join: bad plen=%u len=%u\n",
-                    plen, len);
-            break;
-        }
+        uint8_t pass_off = 1 + rlen;
+        uint8_t plen = p[pass_off];
+        if (pass_off + 1 + plen > len) break;
 
-        char room[MAX_ROOM + 1], pass[MAX_ROOM + 1];
+        char room[MAX_ROOM+1];
         if (rlen > MAX_ROOM) rlen = MAX_ROOM;
-        memcpy(room, &p[1], rlen);
+        memcpy(room, p+1, rlen);
         room[rlen] = '\0';
 
+        char pass[MAX_ROOM+1];
         if (plen > MAX_ROOM) plen = MAX_ROOM;
-        memcpy(pass, &p[plen_off + 1], plen);
+        memcpy(pass, p+pass_off+1, plen);
         pass[plen] = '\0';
 
         handle_join(c, room, pass);
         break;
     }
 
-    case 0x15: { /* room chat from client */
-        if (len < 3) {
-            fprintf(stderr, "[DEBUG] process_packet room chat: len<3\n");
-            break;
-        }
-
+    case OPCODE_ROOM_CHAT: {
+        if (len < 3) break;
         uint8_t rlen = p[0];
-        if (1 + rlen + 2 > len) {
-            fprintf(stderr,
-                    "[DEBUG] process_packet room chat: bad lengths rlen=%u len=%u\n",
-                    rlen, len);
-            break;
-        }
+        if (1 + rlen + 2 > len) break;
 
-        uint16_t mlen = (uint16_t)((p[1 + rlen] << 8) | p[2 + rlen]);
-        if (3 + rlen + mlen > len) {
-            fprintf(stderr,
-                    "[DEBUG] process_packet room chat: bad mlen=%u len=%u\n",
-                    mlen, len);
-            break;
-        }
+        uint16_t mlen = (uint16_t)((p[1+rlen]<<8) | p[2+rlen]);
+        if (3 + rlen + mlen > len) break;
+
         if (mlen > MAX_MSG) mlen = MAX_MSG;
 
-        char msg[MAX_MSG + 1];
-        memcpy(msg, p + 3 + rlen, mlen);
+        char msg[MAX_MSG+1];
+        memcpy(msg, p+3+rlen, mlen);
         msg[mlen] = '\0';
 
         handle_room_chat(c, msg);
         break;
     }
 
-    case 0x12: { /* direct message from client */
-        if (len < 3) {
-            fprintf(stderr, "[DEBUG] process_packet DM: len<3\n");
-            break;
-        }
+    case OPCODE_DM: {
+        if (len < 3) break;
         uint8_t nlen = p[0];
-        if (nlen == 0 || 1 + nlen + 2 > len) {
-            fprintf(stderr,
-                    "[DEBUG] process_packet DM: bad nlen=%u len=%u\n",
-                    nlen, len);
-            break;
-        }
+        if (nlen == 0 || 1 + nlen + 2 > len) break;
 
-        char dest[MAX_NICK + 1];
         if (nlen > MAX_NICK) nlen = MAX_NICK;
-        memcpy(dest, &p[1], nlen);
+        char dest[MAX_NICK+1];
+        memcpy(dest, p+1, nlen);
         dest[nlen] = '\0';
 
-        uint16_t mlen = (uint16_t)((p[1 + nlen] << 8) | p[2 + nlen]);
-        if (3 + nlen + mlen > len) {
-            fprintf(stderr,
-                    "[DEBUG] process_packet DM: bad mlen=%u len=%u\n",
-                    mlen, len);
-            break;
-        }
+        uint16_t mlen = (uint16_t)((p[1+nlen]<<8) | p[2+nlen]);
+        if (3 + nlen + mlen > len) break;
         if (mlen > MAX_MSG) mlen = MAX_MSG;
 
-        char msg[MAX_MSG + 1];
-        memcpy(msg, p + 3 + nlen, mlen);
+        char msg[MAX_MSG+1];
+        memcpy(msg, p+3+nlen, mlen);
         msg[mlen] = '\0';
 
         handle_msg(c, dest, msg);
         break;
     }
 
-    case 0x09: /* list rooms */
+    case OPCODE_LIST_ROOMS:
         handle_list_rooms(c);
         break;
 
-    case 0x0C: /* list users */
+    case OPCODE_LIST_USERS:
         handle_list_users(c);
         break;
 
-    case 0x06: /* leave */
+    case OPCODE_LEAVE:
         handle_leave(c);
         break;
 
     default:
         fprintf(stderr,
-                "[DEBUG] process_packet: fd=%d unknown opcode=0x%02X, ignoring\n",
-                c->fd, opcode);
+                "[DEBUG] process_packet: unknown opcode 0x%02X\n", opcode);
         break;
     }
 }
 
-/* ============================================================
- * Main
- * ============================================================ */
+/* MAIN LOOP */
 
 int main(int argc, char **argv) {
     if (argc != 3 || strcmp(argv[1], "-p") != 0) {
@@ -839,7 +707,7 @@ int main(int argc, char **argv) {
     addr.sin_port        = htons(port);
     addr.sin_addr.s_addr = htonl(INADDR_ANY);
 
-    if (bind(listen_fd, (struct sockaddr *)&addr, sizeof addr) < 0)
+    if (bind(listen_fd, (struct sockaddr*)&addr, sizeof addr) < 0)
         die("bind");
     if (listen(listen_fd, 32) < 0)
         die("listen");
@@ -857,7 +725,7 @@ int main(int argc, char **argv) {
             if (c->fd > maxfd) maxfd = c->fd;
         }
 
-        if (select(maxfd + 1, &rfds, NULL, NULL, NULL) < 0) {
+        if (select(maxfd+1, &rfds, NULL, NULL, NULL) < 0) {
             if (errno == EINTR) continue;
             die("select");
         }
@@ -868,13 +736,7 @@ int main(int argc, char **argv) {
                 Client *c = xcalloc(1, sizeof(Client));
                 c->fd = fd;
                 snprintf(c->nick, sizeof(c->nick), "rand%d", next_rand_id++);
-                fprintf(stderr,
-                        "[DEBUG] new client connected: fd=%d nick='%s'\n",
-                        fd, c->nick);
                 add_client(c);
-            } else {
-                fprintf(stderr,
-                        "[DEBUG] accept failed: errno=%d\n", errno);
             }
         }
 
@@ -889,9 +751,6 @@ int main(int argc, char **argv) {
             uint32_t blen = sizeof buf;
 
             if (!recv_packet(c, &opcode, buf, &blen)) {
-                fprintf(stderr,
-                        "[DEBUG] main loop: recv_packet failed, removing client fd=%d nick='%s'\n",
-                        c->fd, c->nick);
                 remove_client(c);
                 continue;
             }
